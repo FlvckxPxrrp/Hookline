@@ -1,0 +1,6 @@
+@Hookline.Api_HostAddress = http://localhost:5226
+
+GET {{Hookline.Api_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###
