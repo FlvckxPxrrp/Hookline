@@ -6,8 +6,10 @@ namespace Hookline.Infrastructure.Persistence
     public class AppDbContext : DbContext
     {
         public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
-        
+
         public DbSet<IncomingEvent> IncomingEvents { get; set; }
+        public DbSet<Subscriber> Subscribers { get; set; }
+        public DbSet<DeliveryAttempt> DeliveryAttempts { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
