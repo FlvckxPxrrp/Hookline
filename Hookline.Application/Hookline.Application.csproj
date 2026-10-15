@@ -6,4 +6,8 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\Hookline.Domain\Hookline.Domain.csproj" />
+  </ItemGroup>
+
 </Project>
