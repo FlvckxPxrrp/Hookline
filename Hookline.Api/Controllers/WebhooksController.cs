@@ -1,7 +1,7 @@
-﻿using Hookline.Domain.Entities;
+﻿using Hookline.Application.Services;
+using Hookline.Domain.Entities;
 using Hookline.Infrastructure.Persistence;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore.Query.SqlExpressions;
 using System.Text.Json;
 
 namespace Hookline.Api.Controllers
@@ -12,20 +12,23 @@ namespace Hookline.Api.Controllers
     {
         private readonly ILogger<WebhooksController> _logger;
         private readonly AppDbContext _context;
+        private readonly ISignatureValidator _signatureValidator;
 
-        public WebhooksController(ILogger<WebhooksController> logger, AppDbContext context) 
+        public WebhooksController(ILogger<WebhooksController> logger, AppDbContext context,
+            ISignatureValidator signatureValidator) 
         {
             _logger = logger;
             _context = context;
+            _signatureValidator = signatureValidator;
         }
-
+        
         [HttpPost("{source}")]
         public async Task<ActionResult> Receive(string source, CancellationToken ct)
         {
             Request.EnableBuffering();
 
             using var reader = new StreamReader(Request.Body, leaveOpen: true);
-            var rowBody = await reader.ReadToEndAsync(ct);
+            var rawBody = await reader.ReadToEndAsync(ct);
 
             Request.Body.Position = 0;
 
@@ -39,6 +42,13 @@ namespace Hookline.Api.Controllers
                 ? evtType
                 : "unknow";
 
+            if (!_signatureValidator.IsValid(source, rawBody, headers))
+            {
+                _logger.LogWarning("Отклонен вебхук от {Source}: неверная подпись", source);
+
+                return Unauthorized(new { error = "Invalid signature" });
+            }
+
             var incomingEvent = new IncomingEvent
             {
                 Id = Guid.NewGuid(),
@@ -46,7 +56,7 @@ namespace Hookline.Api.Controllers
                 ExternalId = externalId,
                 EventType = eventType,
                 Headers = JsonSerializer.Serialize(headers),
-                Payload = rowBody,
+                Payload = rawBody,
                 ReceivedAt = DateTime.UtcNow,
                 Status = "Received"
             };
@@ -58,6 +68,6 @@ namespace Hookline.Api.Controllers
             source, eventType, externalId, incomingEvent.Id);
 
             return Accepted(new {eventId = incomingEvent.Id});
-        }
+        }        
     }
 }
