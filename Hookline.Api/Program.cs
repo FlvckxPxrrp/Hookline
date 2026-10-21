@@ -1,4 +1,5 @@
 ﻿using Hookline.Application.Services;
+using Hookline.Infrastructure.BackgroundJobs;
 using Hookline.Infrastructure.Persistence;
 using Hookline.Infrastructure.Security;
 using Microsoft.EntityFrameworkCore;
@@ -15,6 +16,7 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Postgres")));
 
+builder.Services.AddHostedService<WebhookDeliveryWorker>();
 builder.Services.AddScoped<ISignatureValidator, GitHubSignatureValidator>();
 
 // 3. Health Checks
