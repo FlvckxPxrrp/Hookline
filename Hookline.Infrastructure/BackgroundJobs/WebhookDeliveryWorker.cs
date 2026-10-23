@@ -1,4 +1,5 @@
 ﻿using Hookline.Application.Services;
+using Hookline.Domain.Entities;
 using Hookline.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
@@ -31,42 +32,83 @@ namespace Hookline.Infrastructure.BackgroundJobs
                     var deliveryService = scope.ServiceProvider.GetRequiredService<IWebhookDeliveryService>();
 
                     var events = await db.IncomingEvents
-                        .Where(e => e.Status == "Received")
+                        .Where(e => (e.Status == "Received") || (e.Status == "Pending" && e.NextRetryAt <= DateTime.UtcNow))
                         .OrderBy(e => e.ReceivedAt)
                         .Take(10)
                         .ToListAsync(stoppingToken);
 
-                    if (!events.Any())
-                        continue;
-
-                    foreach (var evt in events)
+                    if (events.Any())
                     {
-                        string testUrl = "https://webhook.site/67ee01dc-0073-4bb7-a924-fe6350e258e6";
-
-                        var result = await deliveryService.DeliveryAsync(testUrl, evt.Payload, stoppingToken);
-
-                        if (result.IsSuccess)
+                        foreach (var evt in events)
                         {
-                            evt.Status = "Delivered";
-                            _logger.LogInformation("Событие {EventId} успешно доставлено.", evt.Id);
-                        }
-                        else
-                        {
-                            if (result.StatusCode >= 400 && result.StatusCode < 500 && result.StatusCode != 429)
+                            string testUrl = "https://webhook.site/67ee01dc-0073-4bb7-a924-fe6350e258e6";
+
+                            var updateRows = await db.IncomingEvents
+                                .Where(e => e.Id == evt.Id && e.Status == "Received")
+                                .ExecuteUpdateAsync(setters => setters
+                                .SetProperty(e => e.Status, "Processing")
+                                .SetProperty(e => e.NextRetryAt, (DateTime?)null),
+                                stoppingToken);
+
+                            if (updateRows == 0)
                             {
-                                evt.Status = "Dead";
-                                _logger.LogWarning("Событие {EventId} получило 4xx ({Code}). Отправляем в Dead.", evt.Id, result.StatusCode);
+                                _logger.LogInformation("Событие {EventId} уже забрал другой воркер", evt.Id);
+                                continue;
+                            }
+
+                            var result = await deliveryService.DeliveryAsync(testUrl, evt.Payload, stoppingToken);
+
+                            string newEventStatus;
+                            DateTime? nextRetryAt = null;
+                            string? attemptStatus;
+
+                            if (result.IsSuccess)
+                            {
+                                newEventStatus = "Delivered";
+                                attemptStatus = "Delivered";
+                            }
+                            else if (result.StatusCode >= 400 && result.StatusCode < 500 && result.StatusCode != 429)
+                            {
+                                newEventStatus = "Dead";
+                                attemptStatus = "Failed";
+                                _logger.LogWarning("Событие {EventId} отклонено сервером (Код: {Code}). Ретраи отключены",
+                                    evt.Id, result.StatusCode);
                             }
                             else
                             {
-                                evt.Status = "Pending";
-                                _logger.LogWarning("Событие {EventId} не доставлено: {Error}. Вернули в Pending.", evt.Id, result.Error);
-                            }
-                        }
-                        await db.SaveChangesAsync(stoppingToken);
-                        _logger.LogInformation("Взял в работу {Count} событий", events.Count);
+                                newEventStatus = "Pending";
+                                attemptStatus = "Failed";
 
-                        await Task.Delay(3000, stoppingToken);
+                                nextRetryAt = DateTime.UtcNow.AddMinutes(1);
+
+                                _logger.LogWarning("Событие {EventId} не доставлено: {Error}. Повтор через 1 мин.", 
+                                    evt.Id, result.Error);
+                            }
+
+                            var previousAttemptsCount = await db.DeliveryAttempts
+                                .CountAsync(a => a.EventId == evt.Id, stoppingToken);
+                            var currentAttemptNumber = previousAttemptsCount + 1;
+
+                            var attempt = new DeliveryAttempt
+                            {
+                                Id = Guid.NewGuid(),
+                                EventId = evt.Id,
+                                SubscriberId = Guid.Empty,
+                                AttemptNumber = currentAttemptNumber,
+                                Status = attemptStatus,
+                                CreatedAt = DateTime.UtcNow,
+                                CompletedAt = DateTime.UtcNow,
+                                NextRetryAt = nextRetryAt,
+                            };
+
+                            db.DeliveryAttempts.Add(attempt);
+                            evt.Status = newEventStatus;                         
+
+                            await db.SaveChangesAsync(stoppingToken);
+                            _logger.LogInformation("Взял в работу {Count} событий", events.Count);
+
+                            await Task.Delay(3000, stoppingToken);
+                        }
                     }
                 }
                 catch (Exception ex)

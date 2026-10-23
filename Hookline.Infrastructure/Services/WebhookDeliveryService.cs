@@ -12,7 +12,8 @@ namespace Hookline.Infrastructure.Services
             _httpClientFactory = httpClientFactory;
         }
 
-        public async Task<(bool IsSuccess, int? StatusCode, string? Error)> DeliveryAsync(string url, string payload, CancellationToken ct)
+        public async Task<(bool IsSuccess, int? StatusCode, string? Error)> DeliveryAsync
+            (string url, string payload, CancellationToken ct)
         {
             try
             {
