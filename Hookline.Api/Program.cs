@@ -1,6 +1,8 @@
 ﻿using Hookline.Application.Services;
+using Hookline.Infrastructure.BackgroundJobs;
 using Hookline.Infrastructure.Persistence;
 using Hookline.Infrastructure.Security;
+using Hookline.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -15,11 +17,18 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Postgres")));
 
+builder.Services.AddHostedService<WebhookDeliveryWorker>();
 builder.Services.AddScoped<ISignatureValidator, GitHubSignatureValidator>();
 
 // 3. Health Checks
 builder.Services.AddHealthChecks()
     .AddNpgSql(builder.Configuration.GetConnectionString("Postgres")!);
+
+builder.Services.AddHttpClient("WebhookDeliveryClient", client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(10);
+});
+builder.Services.AddScoped<IWebhookDeliveryService, WebhookDeliveryService>();
 
 var app = builder.Build();
 
