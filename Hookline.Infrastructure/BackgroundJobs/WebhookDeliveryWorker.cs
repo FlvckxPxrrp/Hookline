@@ -32,7 +32,9 @@ namespace Hookline.Infrastructure.BackgroundJobs
                     var deliveryService = scope.ServiceProvider.GetRequiredService<IWebhookDeliveryService>();
 
                     var events = await db.IncomingEvents
-                        .Where(e => (e.Status == "Received") || (e.Status == "Pending" && e.NextRetryAt <= DateTime.UtcNow))
+                        .Where(e => (e.Status == "Received") 
+                        || (e.Status == "Pending" && e.NextRetryAt <= DateTime.UtcNow)
+                        || (e.Status == "Processing" && e.LockedUntil < DateTime.UtcNow))
                         .OrderBy(e => e.ReceivedAt)
                         .Take(10)
                         .ToListAsync(stoppingToken);
@@ -44,17 +46,20 @@ namespace Hookline.Infrastructure.BackgroundJobs
                             string testUrl = "https://webhook.site/67ee01dc-0073-4bb7-a924-fe6350e258e6";
 
                             var updateRows = await db.IncomingEvents
-                                .Where(e => e.Id == evt.Id && e.Status == "Received")
+                                .Where(e => e.Id == evt.Id && e.Status == "Received"
+                                || (e.Status == "Pending" && e.NextRetryAt <= DateTime.UtcNow)
+                                || (e.Status == "Processing" && e.LockedUntil < DateTime.UtcNow))
                                 .ExecuteUpdateAsync(setters => setters
                                 .SetProperty(e => e.Status, "Processing")
-                                .SetProperty(e => e.NextRetryAt, (DateTime?)null),
+                                .SetProperty(e => e.NextRetryAt, (DateTime?)null)
+                                .SetProperty(e => e.LockedUntil, DateTime.UtcNow.AddMinutes(5)),
                                 stoppingToken);
 
                             if (updateRows == 0)
                             {
                                 _logger.LogInformation("Событие {EventId} уже забрал другой воркер", evt.Id);
                                 continue;
-                            }
+                            }    
 
                             var result = await deliveryService.DeliveryAsync(testUrl, evt.Payload, stoppingToken);
 
@@ -93,7 +98,7 @@ namespace Hookline.Infrastructure.BackgroundJobs
                             {
                                 Id = Guid.NewGuid(),
                                 EventId = evt.Id,
-                                SubscriberId = Guid.Empty,
+                                SubscriberId = Guid.Parse("11111111-1111-1111-1111-111111111111"),
                                 AttemptNumber = currentAttemptNumber,
                                 Status = attemptStatus,
                                 CreatedAt = DateTime.UtcNow,

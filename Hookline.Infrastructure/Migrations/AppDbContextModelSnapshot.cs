@@ -93,6 +93,12 @@ namespace Hookline.Infrastructure.Migrations
                         .IsRequired()
                         .HasColumnType("jsonb");
 
+                    b.Property<DateTime?>("LockedUntil")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("NextRetryAt")
+                        .HasColumnType("timestamp with time zone");
+
                     b.Property<string>("Payload")
                         .IsRequired()
                         .HasColumnType("jsonb");
