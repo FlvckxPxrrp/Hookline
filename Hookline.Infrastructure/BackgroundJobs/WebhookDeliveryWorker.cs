@@ -43,12 +43,10 @@ namespace Hookline.Infrastructure.BackgroundJobs
                     {
                         foreach (var evt in events)
                         {
-                            string testUrl = "https://webhook.site/67ee01dc-0073-4bb7-a924-fe6350e258e6";
-
                             var updateRows = await db.IncomingEvents
-                                .Where(e => e.Id == evt.Id && e.Status == "Received"
+                                .Where(e => e.Id == evt.Id && (e.Status == "Received"
                                 || (e.Status == "Pending" && e.NextRetryAt <= DateTime.UtcNow)
-                                || (e.Status == "Processing" && e.LockedUntil < DateTime.UtcNow))
+                                || (e.Status == "Processing" && e.LockedUntil < DateTime.UtcNow)))
                                 .ExecuteUpdateAsync(setters => setters
                                 .SetProperty(e => e.Status, "Processing")
                                 .SetProperty(e => e.NextRetryAt, (DateTime?)null)
@@ -59,67 +57,88 @@ namespace Hookline.Infrastructure.BackgroundJobs
                             {
                                 _logger.LogInformation("Событие {EventId} уже забрал другой воркер", evt.Id);
                                 continue;
-                            }    
+                            }                              
+                            
+                            var subscribers = await db.Subscribers.Where(s=>s.Source == evt.Source && s.IsActive).ToListAsync();
 
-                            var result = await deliveryService.DeliveryAsync(testUrl, evt.Payload, stoppingToken);
-
-                            string newEventStatus;
-                            DateTime? nextRetryAt = null;
-                            string? attemptStatus;
-
-                            if (result.IsSuccess)
+                            if (subscribers.Count == 0)
                             {
-                                newEventStatus = "Delivered";
-                                attemptStatus = "Delivered";
+                                evt.Status = "Delivered";
+                                evt.LockedUntil = null;
+                                await db.SaveChangesAsync(stoppingToken);
+                                continue;
                             }
-                            else if (result.StatusCode >= 400 && result.StatusCode < 500 && result.StatusCode != 429)
+
+                            bool allSuccess = true;
+                            string overallError = "";
+
+                            foreach (var sub in subscribers)
                             {
-                                newEventStatus = "Dead";
-                                attemptStatus = "Failed";
-                                _logger.LogWarning("Событие {EventId} отклонено сервером (Код: {Code}). Ретраи отключены",
-                                    evt.Id, result.StatusCode);
+                                var result = await deliveryService.DeliveryAsync(sub.Url, evt.Payload, stoppingToken);
+
+                                string attemptStatus;
+
+                                if (result.IsSuccess)
+                                {
+                                    attemptStatus = "Delivered";
+                                }
+                                else
+                                {
+                                    attemptStatus = "Failed";
+                                    allSuccess = false;
+                                    overallError = result.Error ?? $"HTTP {result.StatusCode}";
+                                }
+
+                                var previousAttemptsCount = await db.DeliveryAttempts
+                                    .CountAsync(a => a.EventId == evt.Id && a.SubscriberId == sub.Id, stoppingToken);
+
+                                var currentAttemptNumber = previousAttemptsCount + 1;
+
+                                var attempt = new DeliveryAttempt
+                                {
+                                    Id = Guid.NewGuid(),
+                                    EventId = evt.Id,
+                                    SubscriberId = sub.Id, 
+                                    AttemptNumber = currentAttemptNumber,
+                                    Status = attemptStatus,
+                                    ResponseCode = result.StatusCode,
+                                    Error = result.Error,
+                                    CreatedAt = DateTime.UtcNow,
+                                    CompletedAt = DateTime.UtcNow
+                                };
+                                db.DeliveryAttempts.Add(attempt);
+                            }
+
+                            if (allSuccess)
+                            {
+                                evt.Status = "Delivered";
+                                evt.LockedUntil = null;
+                                _logger.LogInformation("Событие {EventId} успешно доставлено всем ({Count}) подписчикам.", 
+                                    evt.Id, subscribers.Count);
                             }
                             else
                             {
-                                newEventStatus = "Pending";
-                                attemptStatus = "Failed";
+                                evt.Status = "Pending";
+                                evt.NextRetryAt = DateTime.UtcNow.AddMinutes(1);
+                                evt.LockedUntil = null;
 
-                                nextRetryAt = DateTime.UtcNow.AddMinutes(1);
-
-                                _logger.LogWarning("Событие {EventId} не доставлено: {Error}. Повтор через 1 мин.", 
-                                    evt.Id, result.Error);
+                                _logger.LogWarning("Событие {EventId} доставлено не всем. Ошибка: " +
+                                    "{Error}. Повтор через 1 мин.", evt.Id, overallError);
                             }
 
-                            var previousAttemptsCount = await db.DeliveryAttempts
-                                .CountAsync(a => a.EventId == evt.Id, stoppingToken);
-                            var currentAttemptNumber = previousAttemptsCount + 1;
-
-                            var attempt = new DeliveryAttempt
-                            {
-                                Id = Guid.NewGuid(),
-                                EventId = evt.Id,
-                                SubscriberId = Guid.Parse("11111111-1111-1111-1111-111111111111"),
-                                AttemptNumber = currentAttemptNumber,
-                                Status = attemptStatus,
-                                CreatedAt = DateTime.UtcNow,
-                                CompletedAt = DateTime.UtcNow,
-                                NextRetryAt = nextRetryAt,
-                            };
-
-                            db.DeliveryAttempts.Add(attempt);
-                            evt.Status = newEventStatus;                         
-
                             await db.SaveChangesAsync(stoppingToken);
-                            _logger.LogInformation("Взял в работу {Count} событий", events.Count);
-
-                            await Task.Delay(3000, stoppingToken);
                         }
+                        
+                        _logger.LogInformation("Взял в работу {Count} событий", events.Count);
                     }
+
                 }
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Ошибка в воркере");
                 }
+
+                await Task.Delay(3000, stoppingToken);
             }
         }
     }
