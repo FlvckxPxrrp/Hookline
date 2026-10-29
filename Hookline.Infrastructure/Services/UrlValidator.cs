@@ -5,7 +5,7 @@ using System.Threading.Tasks;
 
 namespace Hookline.Infrastructure.Services
 {
-    internal class UrlValidator : IUrlValidator
+    public class UrlValidator : IUrlValidator
     {
         public async Task<bool> IsSafe(string url)
         {
