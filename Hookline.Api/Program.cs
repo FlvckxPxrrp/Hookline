@@ -19,6 +19,8 @@ builder.Services.AddDbContext<AppDbContext>(options =>
 
 builder.Services.AddHostedService<WebhookDeliveryWorker>();
 builder.Services.AddScoped<ISignatureValidator, GitHubSignatureValidator>();
+builder.Services.AddScoped<IUrlValidator, UrlValidator>();
+
 
 // 3. Health Checks
 builder.Services.AddHealthChecks()
