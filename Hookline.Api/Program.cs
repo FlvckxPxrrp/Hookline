@@ -3,7 +3,10 @@ using Hookline.Infrastructure.BackgroundJobs;
 using Hookline.Infrastructure.Persistence;
 using Hookline.Infrastructure.Security;
 using Hookline.Infrastructure.Services;
+using Microsoft.AspNetCore.Connections;
 using Microsoft.EntityFrameworkCore;
+using RabbitMQ.Client;
+using Hookline.Infrastructure.BackgroundJobs;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -30,7 +33,24 @@ builder.Services.AddHttpClient("WebhookDeliveryClient", client =>
 {
     client.Timeout = TimeSpan.FromSeconds(10);
 });
+
 builder.Services.AddScoped<IWebhookDeliveryService, WebhookDeliveryService>();
+
+builder.Services.AddSingleton<RabbitMQ.Client.IConnectionFactory>(sp => new ConnectionFactory
+{
+    HostName = "localhost",
+    UserName = "guest",
+    Password = "guest"
+});
+
+builder.Services.AddSingleton<IConnection>(sp =>
+{
+    var factory = sp.GetRequiredService<RabbitMQ.Client.IConnectionFactory>();
+    return factory.CreateConnectionAsync().GetAwaiter().GetResult();
+});
+
+builder.Services.AddHostedService<OutboxPublisherWorker>();
+
 
 var app = builder.Build();
 

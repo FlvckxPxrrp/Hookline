@@ -10,6 +10,7 @@ namespace Hookline.Infrastructure.Persistence
         public DbSet<IncomingEvent> IncomingEvents { get; set; }
         public DbSet<Subscriber> Subscribers { get; set; }
         public DbSet<DeliveryAttempt> DeliveryAttempts { get; set; }
+        public DbSet<OutboxMessages> OutboxMessages { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {

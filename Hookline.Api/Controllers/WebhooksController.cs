@@ -61,11 +61,34 @@ namespace Hookline.Api.Controllers
                 Status = "Received"
             };
 
-            _context.IncomingEvents.Add(incomingEvent);
-            await _context.SaveChangesAsync(ct);
+            using var transaction = await _context.Database.BeginTransactionAsync(ct);
+            try
+            {
+                _context.IncomingEvents.Add(incomingEvent);
 
-            _logger.LogInformation("Webhook received: source={Source}, eventType={EventType}, externalId={ExternalId}, eventId={EventId}",
-            source, eventType, externalId, incomingEvent.Id);
+                _logger.LogInformation("Webhook received: source={Source}, eventType={EventType}, " +
+               "externalId={ExternalId}, eventId={EventId}",
+                source, eventType, externalId, incomingEvent.Id);
+
+                var outboxMsg = new OutboxMessages
+                {
+                    Id = Guid.NewGuid(),
+                    MessageType = "EventCreated",
+                    Payload = JsonSerializer.Serialize(new { EventId = incomingEvent.Id }),
+                    Processed = false,
+                    CreatedAt = DateTime.UtcNow
+                };
+
+                _context.OutboxMessages.Add(outboxMsg);
+
+                await _context.SaveChangesAsync(ct);
+                await transaction.CommitAsync(ct);
+            }
+            catch
+            {
+                await transaction.RollbackAsync(ct);
+                throw;
+            }
 
             return Accepted(new {eventId = incomingEvent.Id});
         }        
