@@ -3,10 +3,8 @@ using Hookline.Infrastructure.BackgroundJobs;
 using Hookline.Infrastructure.Persistence;
 using Hookline.Infrastructure.Security;
 using Hookline.Infrastructure.Services;
-using Microsoft.AspNetCore.Connections;
 using Microsoft.EntityFrameworkCore;
 using RabbitMQ.Client;
-using Hookline.Infrastructure.BackgroundJobs;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -20,7 +18,8 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Postgres")));
 
-builder.Services.AddHostedService<WebhookDeliveryWorker>();
+//builder.Services.AddHostedService<WebhookDeliveryWorker>();
+builder.Services.AddHostedService<RabbitMqConsumerWorker>();
 builder.Services.AddScoped<ISignatureValidator, GitHubSignatureValidator>();
 builder.Services.AddScoped<IUrlValidator, UrlValidator>();
 

@@ -1,18 +1,10 @@
-﻿using Hookline.Application.Services;
-using Hookline.Infrastructure.Persistence;
-using Microsoft.AspNetCore.Components.Forms;
+﻿using Hookline.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using RabbitMQ.Client;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Linq.Expressions;
-using System.Runtime.InteropServices;
 using System.Text;
-using System.Threading.Tasks;
 
 namespace Hookline.Infrastructure.BackgroundJobs
 {
