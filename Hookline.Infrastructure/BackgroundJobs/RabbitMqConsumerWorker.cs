@@ -17,7 +17,6 @@ namespace Hookline.Infrastructure.BackgroundJobs
     {
         private readonly IServiceScopeFactory _scopeFactory;
         private readonly IConnection _rabbitConnection;
-        private readonly IWebhookDeliveryService _deliveryService;
         private readonly ILogger<RabbitMqConsumerWorker> _logger;
 
         private const string QueueName = "webhook_delivery_queue";
@@ -25,12 +24,10 @@ namespace Hookline.Infrastructure.BackgroundJobs
         public RabbitMqConsumerWorker(
         IServiceScopeFactory scopeFactory,
         IConnection rabbitConnection,
-        IWebhookDeliveryService deliveryService,
         ILogger<RabbitMqConsumerWorker> logger)
         {
             _scopeFactory = scopeFactory;
             _rabbitConnection = rabbitConnection;
-            _deliveryService = deliveryService;
             _logger = logger;
         }
 
@@ -69,6 +66,8 @@ namespace Hookline.Infrastructure.BackgroundJobs
 
                     await using var scope = _scopeFactory.CreateAsyncScope();
                     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                    var deliveryService = scope.ServiceProvider.GetRequiredService<IWebhookDeliveryService>();
+
 
                     var evt = await db.IncomingEvents
                         .Include(e => e.DeliveryAttempts)
@@ -109,7 +108,7 @@ namespace Hookline.Infrastructure.BackgroundJobs
 
                     foreach (var sub in subscribers)
                     {
-                        var result = await _deliveryService.DeliveryAsync(sub.Url, evt.Payload, stoppingToken);
+                        var result = await deliveryService.DeliveryAsync(sub.Url, evt.Payload, stoppingToken);
 
                         if (!result.IsSuccess) allSucceess = false;
 
@@ -137,8 +136,8 @@ namespace Hookline.Infrastructure.BackgroundJobs
                     }
                     else
                     {
-                        evt.Status = "Pending"
-                            evt.NextRetryAt = DateTime.UtcNow.AddMinutes(1);
+                        evt.Status = "Pending";
+                        evt.NextRetryAt = DateTime.UtcNow.AddMinutes(1);
                         evt.LockedUntil = null;
                     }
 

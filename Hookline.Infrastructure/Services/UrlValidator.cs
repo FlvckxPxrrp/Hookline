@@ -19,10 +19,13 @@ namespace Hookline.Infrastructure.Services
             {
                 var ipAddress = await Dns.GetHostAddressesAsync(uri.Host);
 
-                foreach(var ip in ipAddress)
+                foreach (var ip in ipAddress)
                 {
                     if (IsPrivateOrLocalIp(ip))
+                    { 
+                        Console.WriteLine($"Заблокирован IP: {ip}");
                         return false;
+                    }
                 }
             }
             catch(SocketException)
@@ -36,11 +39,11 @@ namespace Hookline.Infrastructure.Services
         private bool IsPrivateOrLocalIp(IPAddress ip)
         {
             if(IPAddress.IsLoopback(ip))
-                return true; 
+                return true;
 
             //Пока только IPV4, IPV6 потом
-            if(ip.AddressFamily == AddressFamily.InterNetwork)
-                return true;
+            if (ip.AddressFamily != AddressFamily.InterNetwork)
+                return false;
 
             byte[] bytes = ip.GetAddressBytes();
 
