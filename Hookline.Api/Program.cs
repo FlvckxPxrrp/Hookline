@@ -4,6 +4,7 @@ using Hookline.Infrastructure.Persistence;
 using Hookline.Infrastructure.Security;
 using Hookline.Infrastructure.Services;
 using Microsoft.EntityFrameworkCore;
+using RabbitMQ.Client;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -17,7 +18,8 @@ builder.Services.AddSwaggerGen();
 builder.Services.AddDbContext<AppDbContext>(options =>
     options.UseNpgsql(builder.Configuration.GetConnectionString("Postgres")));
 
-builder.Services.AddHostedService<WebhookDeliveryWorker>();
+//builder.Services.AddHostedService<WebhookDeliveryWorker>();
+builder.Services.AddHostedService<RabbitMqConsumerWorker>();
 builder.Services.AddScoped<ISignatureValidator, GitHubSignatureValidator>();
 builder.Services.AddScoped<IUrlValidator, UrlValidator>();
 
@@ -30,7 +32,24 @@ builder.Services.AddHttpClient("WebhookDeliveryClient", client =>
 {
     client.Timeout = TimeSpan.FromSeconds(10);
 });
+
 builder.Services.AddScoped<IWebhookDeliveryService, WebhookDeliveryService>();
+
+builder.Services.AddSingleton<RabbitMQ.Client.IConnectionFactory>(sp => new ConnectionFactory
+{
+    HostName = "localhost",
+    UserName = "guest",
+    Password = "guest"
+});
+
+builder.Services.AddSingleton<IConnection>(sp =>
+{
+    var factory = sp.GetRequiredService<RabbitMQ.Client.IConnectionFactory>();
+    return factory.CreateConnectionAsync().GetAwaiter().GetResult();
+});
+
+builder.Services.AddHostedService<OutboxPublisherWorker>();
+
 
 var app = builder.Build();
 
