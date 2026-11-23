@@ -18,6 +18,9 @@ namespace Hookline.Infrastructure.BackgroundJobs
         private const string QueueName = "webhook_delivery_queue";
         private const string RoutingKey = "webhook.new";
 
+        private const string RetryExchangeName = "webhook_retry_exchange";
+        private const string RetryQueueName = "webhook_retry_queue";
+        private const string RetryRoutingKey = "webhook.retry";
         public OutboxPublisherWorker(IServiceScopeFactory scopeFactory,
         IConnection rabbitConnection, ILogger<OutboxPublisherWorker> logger)
         {
@@ -31,7 +34,7 @@ namespace Hookline.Infrastructure.BackgroundJobs
             _logger.LogInformation("Outbox Publisher запущен.");
 
             using var channel = await _rabbitConnection.CreateChannelAsync(cancellationToken: stoppingToken);
-
+           
             await channel.ExchangeDeclareAsync(
             exchange: ExchangeName,
             type: ExchangeType.Direct,
@@ -50,6 +53,34 @@ namespace Hookline.Infrastructure.BackgroundJobs
                 queue: QueueName,
                 exchange: ExchangeName,
                 routingKey: RoutingKey,
+                cancellationToken: stoppingToken);
+
+            await channel.ExchangeDeclareAsync(
+                exchange: RetryExchangeName,
+                type: ExchangeType.Direct,
+                durable: true,
+                autoDelete: false,
+                cancellationToken: stoppingToken);
+
+            var retryArguments = new Dictionary<string, object?>
+            {
+                ["x-message-ttl"] = 30_000,
+                ["x-dead-letter-exchange"] = ExchangeName,
+                ["x-dead-letter-routing-key"] = RoutingKey
+            };
+
+            await channel.QueueDeclareAsync(
+                queue: RetryQueueName,
+                durable: true,
+                exclusive: false,
+                autoDelete: false,
+                arguments: retryArguments,
+                cancellationToken: stoppingToken);
+
+            await channel.QueueBindAsync(
+                exchange: RetryExchangeName,
+                queue: RetryQueueName,
+                routingKey: RetryRoutingKey,
                 cancellationToken: stoppingToken);
 
             while (!stoppingToken.IsCancellationRequested)
