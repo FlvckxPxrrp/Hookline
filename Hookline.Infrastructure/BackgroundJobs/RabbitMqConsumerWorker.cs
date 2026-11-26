@@ -104,13 +104,19 @@ namespace Hookline.Infrastructure.BackgroundJobs
                         return;
                     }
 
-                    bool allSucceess = true;
+                    bool allSuccess = true;
 
                     foreach (var sub in subscribers)
                     {
                         var result = await deliveryService.DeliveryAsync(sub.Url, evt.Payload, stoppingToken);
 
-                        if (!result.IsSuccess) allSucceess = false;
+                        var outcome = DeliveryResultClassifier.Classify(result);
+
+                        _logger.LogInformation(
+                            "Результат доставки события {EventId} подписчику {SubscriberId}: {Outcome}",
+                            evt.Id, sub.Id, outcome);
+
+                        if (!result.IsSuccess) allSuccess = false;
 
                         var attemptCount = await db.DeliveryAttempts.CountAsync
                         (a => a.EventId == evt.Id && a.SubscriberId == sub.Id, stoppingToken) + 1;
@@ -129,7 +135,7 @@ namespace Hookline.Infrastructure.BackgroundJobs
                             CompletedAt = DateTime.UtcNow
                         });
                     }
-                    if (allSucceess)
+                    if (allSuccess)
                     {
                         evt.Status = "Delivered";
                         evt.LockedUntil = null;
@@ -145,6 +151,12 @@ namespace Hookline.Infrastructure.BackgroundJobs
 
                     await channel.BasicAckAsync(ea.DeliveryTag, false, stoppingToken);
                     _logger.LogInformation("Сообщение для события {EventId} успешно обработано и подтверждено.", evt.Id);
+                }
+                catch(OperationCanceledException ) when (stoppingToken.IsCancellationRequested)
+                {
+                    _logger.LogInformation("Обработка сообщения остановлена: приложение завершает работу");
+
+                    return;
                 }
                 catch (Exception ex)
                 {
