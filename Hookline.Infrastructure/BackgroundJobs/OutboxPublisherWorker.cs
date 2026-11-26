@@ -101,10 +101,25 @@ namespace Hookline.Infrastructure.BackgroundJobs
                     {
                         foreach (var message in messages)
                         {
+                            var destination = message.MessageType switch
+                            {
+                                "EventCreated" => (
+                                Exchange: ExchangeName,
+                                RoutingKey: RoutingKey),
+
+                                "DeliveryRetry" => (
+                                Exchange: RetryExchangeName,
+                                RoutingKey: RetryRoutingKey),
+
+                                _ => throw new InvalidOperationException(
+                                    $"Неизвестный тип сообщения outbox: {message.MessageType}")
+                            };
+
                             var body = Encoding.UTF8.GetBytes(message.Payload);
+
                             await channel.BasicPublishAsync(
-                                exchange: ExchangeName,
-                                routingKey: RoutingKey,
+                                exchange: destination.Exchange,
+                                routingKey: destination.RoutingKey,
                                 body: body,
                                 cancellationToken: stoppingToken);
 
